@@ -6,12 +6,12 @@ from pixelcanvas import roundup
 class Tree():
   def __init__(self,canvas): #canvas
     #repr stores list of lists indexed:(0) - total length, (1) - branch section lengths, (2) - branch features, (3) - time, (4) - branch order, (5) - growth scale factor (6) - leaf section lengths, (7) - leaf features
-    #features is list of tuples - (type,stage) for leaf (angle,index) for branch (negative angle is left, positive angle is right)
+    #features is list of specifications for leaf or branch - angle for leaf (angle,index) for branch (negative angle is left, positive angle is right)
     #time is measured in seconds, length in pixels, angle in radians
     #sections and feaures are sorted from bottom to top
     #to fix long trunk protrusion at top will make top growth threshold a constant
     self.brown = '#8B6545'
-    self.green = '#078700'
+    self.greens = ['#079803','#048500','#0C6F00','#1C5101'] #greens get darker as list continues
     self.apex_branch_threshold = 9
     self.leaf_thresholds = [int(10e9),3,1] #thresholds for primary and secondary branches
     self.first_growth_scaling_fac = 150 #growth scaling factor for 0th order
@@ -159,7 +159,7 @@ class Tree():
   #wrap recursiverender
   def render(self,bottom_offset = 0):
     #start render at bottom centre
-    rootx = int(self.canvas.pixw/2)
+    rootx = int(self.canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
     rooty = self.canvas.pixh - bottom_offset -1
     addx,addy = self._recursiverender(rootx,rooty)
     if addx == 0 and addy == 0:
@@ -177,7 +177,7 @@ class Tree():
         self._changexdim(newpixw)
       else:
         self._changeydim(newpixh)
-      rootx = int(self.canvas.pixw/2)
+      rootx = int(self.canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
       rooty = self.canvas.pixh - bottom_offset - 1
       addx,addy = self._recursiverender(rootx,rooty)
       if addx == 0 and addy == 0:
@@ -185,39 +185,52 @@ class Tree():
         self.canvas.render()
       else:
         raise RuntimeError('tree render failed twice')
-  #
+      
   def _renderleafbuffer(self):
     for rowindex,row in enumerate(self.leaf_buffer):
       for colindex,tile in enumerate(row):
-        if tile > 0:
-          self.canvas.displayarray[rowindex][colindex] = self.green
+        write = None
+        if tile == 1:
+           write = self.greens[0]
+        elif tile == 2:
+          write = self.greens[1]
+        elif 4 >= tile > 2:
+          write = self.greens[2]
+        elif tile > 5:
+          write = self.greens[3]
+        if write:
+          self.canvas.displayarray[rowindex][colindex] = write
     #clear leaf buffer after writing it
     self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
+
  #fail is flag to see if tree fits in current canvas, if not we carry on to see what canvas size we need then render starts again with enlarged canvas
+ #in order to make branches come out of the correct place rootx,rooty now corresponds to branch vertex furthest down the trunk
+ #if angle is 0, it corresponds to right bottom
   def _recursiverender(self,rootx,rooty,bpoint = 0, angle = 0, fail = False):
     cbranch = self.repr[bpoint]
     bwidth = self._widthfunc(cbranch[0])
     sintheta = math.sin(angle)
     costheta = math.cos(angle)
-    #2 base points
-    p1 = (rootx + costheta * bwidth/2,rooty - sintheta * bwidth/2)
-    p2 = (rootx - costheta * bwidth/2,rooty + sintheta * bwidth/2)
-    #top point
-    p3 = (rootx + sintheta * cbranch[0], rooty - costheta * cbranch[0])
+    #1st base point
+    p1 = (rootx,rooty)
+    #p2 is other base point, p3 is top point
+    if angle >= 0:
+      p2 = (rootx - costheta * bwidth, rooty - sintheta * bwidth)
+      p3 = (rootx - costheta * bwidth/2 + sintheta * cbranch[0], rooty - sintheta * bwidth/2 - costheta * cbranch[0])
+      midbase = (rootx - costheta * bwidth/2, rooty - sintheta * bwidth/2)
+    else:
+      p2 = (rootx + costheta * bwidth, rooty + sintheta * bwidth)
+      p3 = (rootx + costheta * bwidth/2 + sintheta * cbranch[0], rooty + sintheta * bwidth/2 - costheta * cbranch[0])
+      midbase = (rootx + costheta * bwidth/2, rooty + sintheta * bwidth/2)
     plist = [p1,p2,p3]
     #traverse leaf features to draw leaves
     cumlength = 0
     xleafcoords = []
     yleafcoords = []
     for findex,feature in enumerate(cbranch[7]):
-      try:
-        cumlength += cbranch[6][findex]
-      except:
-        print(cbranch[6])
-        print(cbranch[7])
-        raise RuntimeError()
-      xleafcoords.append(rootx + cumlength * sintheta)
-      yleafcoords.append(rooty - cumlength * costheta)
+      cumlength += cbranch[6][findex]
+      xleafcoords.append(midbase[0] + cumlength * sintheta)
+      yleafcoords.append(midbase[1] - cumlength * costheta)
     #check all points are in canvas bounds
     xs = [x for x,y in plist] + xleafcoords
     ys = [y for x,y in plist] + yleafcoords
@@ -235,7 +248,7 @@ class Tree():
     if addx > 0 or addy > 0:
       fail = True
     if not fail:
-      self.canvas.writeshape([p1,p2,p3],self.brown,thin = False)
+      self.canvas.writeshape([p1,p2,p3],self.brown,thin = True)
       for leafx,leafy in zip(xleafcoords,yleafcoords):
         leafx = roundup(leafx)
         leafy = roundup(leafy)
@@ -244,9 +257,13 @@ class Tree():
     cumlength = 0
     for findex,feature in enumerate(cbranch[2]):
       cumlength += cbranch[1][findex]
+      cwidth = self._widthfunc(cbranch[0] - cumlength)
       if addx > 0 or addy > 0:
         fail = True
-      new_addx,new_addy = self._recursiverender(rootx + cumlength * sintheta, rooty - cumlength * costheta, bpoint = feature[1], angle = angle + feature[0], fail = fail)
+      if feature[0] > 0:
+        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta + costheta * cwidth/2, midbase[1] - cumlength * costheta + sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
+      else:
+        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta - costheta * cwidth/2, midbase[1] - cumlength * costheta - sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
       if new_addx > addx:
         addx = new_addx
       if new_addy > addy:
