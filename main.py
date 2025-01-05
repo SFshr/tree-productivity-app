@@ -21,8 +21,8 @@ root.geometry(f'{9*screenscaling}x{16*screenscaling}')
 root.title('Prodtree')
 treecanvas = PixelCanvas(root,pixscaling*9,pixscaling*16,13,bg = blue)
 tree1 = Tree(treecanvas)
-#driver(root,tree1,1,30,600,brown,0)
-for _ in range(10000):
+driver(root,tree1,1,30,600,brown,0)
+'''for _ in range(100000):
   tree1.tick(1)
-tree1.render()
+tree1.render()'''
 root.mainloop()

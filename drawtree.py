@@ -70,8 +70,9 @@ class Tree():
         if sec_length > lthresh:
           nlength = self._splitsection(sec_length)
           newsections += [nlength, sec_length - nlength]
-          #change later
-          branch[7].insert(len(newsections)-2,('type','stage'))
+          #get leaf angle
+          angle = random.uniform(-math.pi, math.pi)
+          branch[7].insert(len(newsections)-2, angle)
         else:
           newsections.append(sec_length)
       branch[6] = newsections
@@ -227,10 +228,12 @@ class Tree():
     cumlength = 0
     xleafcoords = []
     yleafcoords = []
-    for findex,feature in enumerate(cbranch[7]):
+    for findex,leafangle in enumerate(cbranch[7]):
       cumlength += cbranch[6][findex]
-      xleafcoords.append(midbase[0] + cumlength * sintheta)
-      yleafcoords.append(midbase[1] - cumlength * costheta)
+      cwidth = self._widthfunc(cbranch[0] - cumlength)
+      leafoffset = math.sin(leafangle) * cwidth/2
+      xleafcoords.append(midbase[0] + cumlength * sintheta + costheta * leafoffset)
+      yleafcoords.append(midbase[1] - cumlength * costheta + sintheta * leafoffset)
     #check all points are in canvas bounds
     xs = [x for x,y in plist] + xleafcoords
     ys = [y for x,y in plist] + yleafcoords
