@@ -11,14 +11,17 @@ class Tree():
     #sections and feaures are sorted from bottom to top
     #to fix long trunk protrusion at top will make top growth threshold a constant
     self.brown = '#8B6545'
+ #index corresponds to number of leaves in a tile - 1, pointer to greens at that index is colour of tile, last colour covers all leaf counts higher than that index - 1
+    self.leafcolourthresholds = [0,1,2,2,3]
     self.greens = ['#079803','#048500','#0C6F00','#1C5101'] #greens get darker as list continues
-    self.apex_branch_threshold = 9
-    self.leaf_thresholds = [int(10e9),3,1] #thresholds for primary and secondary branches
+    self.apex_branch_thresholds = [9,6,3]
+    self.leaf_thresholds = [int(10e9),3,2,1] #thresholds for primary and secondary branches
     self.first_growth_scaling_fac = 150 #growth scaling factor for 0th order
     self.length_ratio = 0.3 #ratio between n order and n+1 order growth function scaling factors
     self.branching_threshold_ratio = 0.7 #ratio between n order and n+1 order internode length
     self.global_time = 0
-    self.max_order = 2
+    self.max_order = 3
+    self.max_visible_order = 2
     self.repr = [self._newbranch(0)]
     self.debug_times = []
     self.canvas = canvas
@@ -44,7 +47,7 @@ class Tree():
             if sec_length > bthresh:
               branchflag = True
           else:
-            if sec_length > self.apex_branch_threshold:
+            if sec_length > self.apex_branch_thresholds[branch[4]]:
               branchflag = True
           if branchflag:
             split1,split2 = sorted([self._splitsection(sec_length),self._splitsection(sec_length)])
@@ -190,16 +193,11 @@ class Tree():
   def _renderleafbuffer(self):
     for rowindex,row in enumerate(self.leaf_buffer):
       for colindex,tile in enumerate(row):
-        write = None
-        if tile == 1:
-           write = self.greens[0]
-        elif tile == 2:
-          write = self.greens[1]
-        elif 4 >= tile > 2:
-          write = self.greens[2]
-        elif tile > 5:
-          write = self.greens[3]
-        if write:
+        if tile != 0:
+          if tile <= len(self.leafcolourthresholds):
+            write = self.greens[self.leafcolourthresholds[tile - 1]]
+          else:
+            write = self.greens[self.leafcolourthresholds[-1]]
           self.canvas.displayarray[rowindex][colindex] = write
     #clear leaf buffer after writing it
     self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
@@ -231,7 +229,7 @@ class Tree():
     for findex,leafangle in enumerate(cbranch[7]):
       cumlength += cbranch[6][findex]
       cwidth = self._widthfunc(cbranch[0] - cumlength)
-      leafoffset = math.sin(leafangle) * cwidth/2
+      leafoffset = math.sin(leafangle) * (cwidth/2 +1) #allow leaf to form outside branch
       xleafcoords.append(midbase[0] + cumlength * sintheta + costheta * leafoffset)
       yleafcoords.append(midbase[1] - cumlength * costheta + sintheta * leafoffset)
     #check all points are in canvas bounds
@@ -251,7 +249,8 @@ class Tree():
     if addx > 0 or addy > 0:
       fail = True
     if not fail:
-      self.canvas.writeshape([p1,p2,p3],self.brown,thin = True)
+      if cbranch[4] <= self.max_visible_order:
+        self.canvas.writeshape([p1,p2,p3],self.brown,thin = True)
       for leafx,leafy in zip(xleafcoords,yleafcoords):
         leafx = roundup(leafx)
         leafy = roundup(leafy)
