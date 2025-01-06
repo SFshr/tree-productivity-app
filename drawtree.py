@@ -10,7 +10,9 @@ class Tree():
     #time is measured in seconds, length in pixels, angle in radians
     #sections and feaures are sorted from bottom to top
     #to fix long trunk protrusion at top will make top growth threshold a constant
+    self.brownrowthresh = 5
     self.brown = '#8B6545'
+    self.light_brown = '#9A6F4C'
  #index corresponds to number of leaves in a tile - 1, pointer to greens at that index is colour of tile, last colour covers all leaf counts higher than that index - 1
     self.leafcolourthresholds = [0,1,2,2,3]
     self.greens = ['#079803','#048500','#0C6F00','#1C5101'] #greens get darker as list continues
@@ -167,6 +169,7 @@ class Tree():
     rooty = self.canvas.pixh - bottom_offset -1
     addx,addy = self._recursiverender(rootx,rooty)
     if addx == 0 and addy == 0:
+      self._postprocesstrunk()
       self._renderleafbuffer()
       self.canvas.render()
     else:
@@ -185,6 +188,7 @@ class Tree():
       rooty = self.canvas.pixh - bottom_offset - 1
       addx,addy = self._recursiverender(rootx,rooty)
       if addx == 0 and addy == 0:
+        self._postprocesstrunk()
         self._renderleafbuffer()
         self.canvas.render()
       else:
@@ -201,6 +205,41 @@ class Tree():
           self.canvas.displayarray[rowindex][colindex] = write
     #clear leaf buffer after writing it
     self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
+
+#go through all rows in displayarray, if number of brown pixels in a row is more than self.brownrowthresh make some of the middle ones lighter brown
+  def _postprocesstrunk(self):
+    #list of 3-tuple (rowindex, start column index, end column index)
+    light_brown_rowwrites = []
+    for rowindex,row in enumerate(self.canvas.displayarray):
+      startbrown = None
+      endbrown = None
+      for colindex, pixelcol in enumerate(row):
+        if pixelcol == self.brown:
+          if startbrown == None:
+            startbrown = colindex
+            endbrown = colindex
+          else:
+            endbrown = colindex
+        if (self._stopbrownrow(rowindex,colindex) or colindex + 1 == len(row)) and startbrown != None:
+          brownlength = endbrown - startbrown + 1
+          if brownlength > self.brownrowthresh:
+            light_brown_rowwrites.append((rowindex,startbrown + 2, endbrown - 2))
+          startbrown = None
+          endbrown = None
+    #make the changes
+    for rowindex,startcol,endcol in light_brown_rowwrites:
+      for colindex in range(startcol,endcol + 1):
+        self.canvas.displayarray[rowindex][colindex] = self.light_brown
+
+  #helper function for _postprocesstrunk
+  def _stopbrownrow(self,rowindex,colindex):
+    offsets = [-1,0,1]
+    for yoff in offsets:
+      crow = rowindex + yoff
+      if len(self.canvas.displayarray) > crow >= 0:
+        if self.canvas.displayarray[crow][colindex] != self.brown:
+          return True
+    return False
 
  #fail is flag to see if tree fits in current canvas, if not we carry on to see what canvas size we need then render starts again with enlarged canvas
  #in order to make branches come out of the correct place rootx,rooty now corresponds to branch vertex furthest down the trunk
