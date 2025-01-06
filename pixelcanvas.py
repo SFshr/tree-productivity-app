@@ -11,6 +11,7 @@ def print2D(a):
 class PixelCanvas(Canvas):
   #assume width,height are factors of integer pixsize
   def __init__(self,parent,width,height,pixsize,**kwargs):
+    self.bezier_step = 0.1
     self.perfect_width = width
     self.perfect_height = height
     self.pixsize = pixsize
@@ -73,6 +74,22 @@ class PixelCanvas(Canvas):
     for crow in range(rowstart,rowstop+1):
       self.displayarray[crow][column] = colour
 
+  def samplebezier(self,p1,p2,p3,t):
+    xcoord = (1-t)*((1-t)*p1[0]+t*p2[0]) + t*((1-t)*p2[0]+t*p3[0])
+    ycoord = (1-t)*((1-t)*p1[1]+t*p2[1]) + t*((1-t)*p2[1]+t*p3[1])
+    return (xcoord,ycoord)
+  
+  #return list of samples points for quadratic beziers
+  def makebezier(self,p1,p2,p3,colour):
+    bpoints = []
+    currentt = 0
+    while currentt <= 1:
+      bpoints.append(self.samplebezier(p1,p2,p3,currentt))
+      currentt += self.bezier_step
+    if currentt != 1:
+      bpoints.append(p3)
+    return bpoints
+
   #func takes in x coordinate, returns tuple of all y values for that x
   #draws porton of curve between xstart and xstop
   #cstart has to be less than cstop!
@@ -133,11 +150,17 @@ class PixelCanvas(Canvas):
         ystart,ystop = ystop,ystart
       self._writecol(roundup(xstart),roundup(ystart),roundup(ystop),colour)
   
-  #coords is list of 2-tuples
+  #coords contains 2-tuples or list of 3 points representing quadratic bezier curve
   def writeoutline(self,coords,colour,thin = True):
-    coords.append(coords[0])
-    for icoord in range(len(coords)-1):
-      self.writeline(*coords[icoord],*coords[icoord+1],colour,thin = thin)
+    newcoords = []
+    for coord in coords:
+      if isinstance(coord, list):
+        newcoords += self.makebezier(*coord,colour)
+      else:
+        newcoords.append(coord)
+    newcoords.append(newcoords[0])
+    for icoord in range(len(newcoords)-1):
+      self.writeline(*newcoords[icoord],*newcoords[icoord+1],colour,thin = thin)
 
   #need to construct a temporary canvas to fill the outline of the shape in 
   def writeshape(self,coords,colour,thin = True):
@@ -146,9 +169,14 @@ class PixelCanvas(Canvas):
     self.writeoutline(coords,colour,thin = thin)
     xcoords = []
     ycoords = []
-    for x,y in coords:
-      xcoords.append(x)
-      ycoords.append(y)
+    #flatten and seperate coords
+    for coord in coords:
+      if isinstance(coord, list):
+        xcoords += [x for x,_ in coord]
+        ycoords += [y for _,y in coord]
+      else:
+        xcoords.append(coord[0])
+        ycoords.append(coord[1])
     miny = roundup(min(ycoords) - 1)
     maxy = roundup(max(ycoords) + 1)
     minx = roundup(min(xcoords) - 1)
