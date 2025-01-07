@@ -297,7 +297,8 @@ class Tree():
     #traverse branch features to recursively draw branches
     cumlength = 0
     for findex,feature in enumerate(cbranch[2]):
-      cumlength += cbranch[1][findex]
+      csectionlength = cbranch[1][findex]
+      cumlength += csectionlength
       cwidth = self._widthfunc(cbranch[0] - cumlength)
       if addx > 0 or addy > 0:
         fail = True
@@ -305,8 +306,30 @@ class Tree():
         new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta + costheta * cwidth/2, midbase[1] - cumlength * costheta + sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
       else:
         new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta - costheta * cwidth/2, midbase[1] - cumlength * costheta - sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
+      #add bezier curve to smooth out transition between root and trunk
+      #This code only works for 1st order branches and when root is straight!
+      if cbranch[4] == 0 and not fail:#(self,coords,colour,thin = True)
+        oldwidth = self._widthfunc(cbranch[0] - cumlength + csectionlength)
+        nextbranch = self.repr[feature[1]]
+        nextbranchsectionlength = nextbranch[1][0]
+        nextwidth = self._widthfunc(nextbranch[0])
+        nextwidthaftersection = self._widthfunc(nextbranch[0] - nextbranchsectionlength)
+        cosbangle = math.cos(feature[0])
+        sinbangle = math.sin(feature[0])
+        if feature[0] > 0:
+          #2nd point is intersection between branch and trunk, 1st is further down on trunk, 3rd is further up on branch
+          p1 = (midbase[0] + oldwidth/2, midbase[1] - cumlength + csectionlength)
+          p2 = (midbase[0] + cwidth/2, midbase[1] - cumlength)
+          p3 = (midbase[0] + cwidth/2 - cosbangle * nextwidth/2 + sinbangle * nextbranchsectionlength + cosbangle * nextwidthaftersection/2, midbase[1] - cumlength - sinbangle * nextwidth/2 - cosbangle * nextbranchsectionlength + sinbangle * nextwidthaftersection/2)
+          self.canvas.writeshape([[p1,p2,p3],p2],self.brown)
+        else:
+          p1 = (midbase[0] - oldwidth/2, midbase[1] - cumlength + csectionlength)
+          p2 = (midbase[0] - cwidth/2, midbase[1] - cumlength)
+          p3 = (midbase[0] - cwidth/2 + cosbangle * nextwidth/2 + sinbangle * nextbranchsectionlength - cosbangle * nextwidthaftersection/2, midbase[1] - cumlength + sinbangle * nextwidth/2 - cosbangle * nextbranchsectionlength - sinbangle * nextwidthaftersection/2)
+          self.canvas.writeshape([[p1,p2,p3],p2],self.brown)
       if new_addx > addx:
         addx = new_addx
       if new_addy > addy:
         addy = new_addy
     return (addx,addy)
+  
