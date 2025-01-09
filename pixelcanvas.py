@@ -1,5 +1,7 @@
 from tkinter import Tk, Canvas,Frame,BOTH
 import math
+import numpy as np
+from PIL import Image as im
 #implement rounding 0.5 up (even for negatives) rather than rounding 0.5 to nearest even integer
 def roundup(n):
   return int(math.floor(n+0.5))
@@ -10,19 +12,29 @@ def print2D(a):
 
 class PixelCanvas(Canvas):
   #assume width,height are factors of integer pixsize
-  def __init__(self,parent,width,height,pixsize,**kwargs):
+  def __init__(self,parent,width,height,pixsize,bg = '#FFFFFF'):
     self.bezier_step = 0.1
     self.perfect_width = width
     self.perfect_height = height
     self.pixsize = pixsize
     self.pixw = int(width/pixsize)
     self.pixh = int(height/pixsize)
+    self.background_rgb = tuple(int(bg[i:i+2],16) for i in range(1,7,2))
     self._resetdisplay()
     self.width = pixsize*self.pixw
     self.height = pixsize*self.pixh
-    super().__init__(parent,width = self.width, height = self.height, highlightthickness = 0,**kwargs)
-    self.pack()
+    super().__init__(parent,width = self.width, height = self.height, highlightthickness = 0,bg = bg)
+  # PIL accepts only rgb
+  def _hextorgb(self,code):
+    if code != None:
+      return tuple(int(code[i:i+2],16) for i in range(1,7,2))
+    return self.background_rgb
   
+  #note each element in displayarray corresponds to a pixel in the image
+  def renderimage(self):
+    rgbarray = np.array([[self._hextorgb(pix) for pix in row] for row in self.displayarray],dtype=np.uint8)
+    return im.fromarray(rgbarray)
+
   def changexdim(self,pixlen):
     self.pixsize = int(self.perfect_width/pixlen)
     self.pixw = pixlen

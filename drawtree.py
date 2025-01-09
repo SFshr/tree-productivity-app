@@ -2,9 +2,9 @@ import math
 from numpy import random
 from time import perf_counter
 from pixelcanvas import roundup
-#change angle so that we don't store angle change in features?
+
 class Tree():
-  def __init__(self,canvas): #canvas
+  def __init__(self): #canvas
     #repr stores list of lists indexed:(0) - total length, (1) - branch section lengths, (2) - branch features, (3) - time, (4) - branch order, (5) - growth scale factor (6) - leaf section lengths, (7) - leaf features
     #features is list of specifications for leaf or branch - angle for leaf (angle,index) for branch (negative angle is left, positive angle is right)
     #time is measured in seconds, length in pixels, angle in radians
@@ -25,13 +25,25 @@ class Tree():
     self.max_order = 3
     self.max_visible_order = 2
     self.repr = [self._newbranch(0)]
-    self.debug_times = []
-    self.canvas = canvas
     self.expand_offset = 10 #how many pixels canvas expands by when tree grows to big
-    self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)] #stores positions of all leaves to render after branches
+     #stores positions of all leaves to render after branches
+  #save tree state so that it can be reverted to
+  def savestate(self):
+    #cannot just assign repr to oldrepr as lists are passed by reference
+    self.oldrepr = self._recdeepcopy(self.repr)
+    self.oldglobal_time = self.global_time
 
+  def recoverstate(self):
+    self.repr = self._recdeepcopy(self.oldrepr)
+    self.global_time = self.oldglobal_time
+
+  #makes new list with the same values in it as list passed in
+  def _recdeepcopy(self,l):
+    if isinstance(l,list):
+      return [self._recdeepcopy(elem) for elem in l]
+    return l
+    
   def tick(self,timestep):
-    debugstart = perf_counter()
     addrepr = []
     for branch in self.repr:
       branch[3] += timestep
@@ -83,18 +95,13 @@ class Tree():
       branch[6] = newsections
     self.repr += addrepr
     self.global_time += timestep
-    debugstop = perf_counter()
-    self.debug_times.append(('tick',debugstop-debugstart))
 
   #rejection sampling generating normally distributed values within range
   #ensure <lb, >ub are unlikely
   def _normalbounds(self,mean,deviation,lb,ub):
-    debugstart = perf_counter()
     genval = lb
     while not (ub > genval > lb):
       genval = random.normal(loc = mean, scale = deviation)
-    debugstop = perf_counter()
-    self.debug_times.append(('normalbounds',debugstop-debugstart))
     return genval
   
   #split current section into two:
@@ -129,7 +136,6 @@ class Tree():
   #use auxin density function (1/(x+0.5)) to distribute new length to all sections of plant
   #IF YOU HAVE LENGTH OF 0 GROWTH ALSO WILL BE 0
   def _auxinweight(self,sections,addlength):
-    debugstart = perf_counter()
     sectionweights  = []
     #start from the top of the tree
     sections.reverse()
@@ -143,8 +149,6 @@ class Tree():
     sectionweights = [s*addlength/weightsum for s in sectionweights]
     nsections = [s+a for s,a in zip(sectionweights,sections)]
     nsections.reverse()
-    debugstop = perf_counter()
-    self.debug_times.append(('auxinweight',debugstop-debugstart))
     return nsections
 
   def __str__(self):
@@ -152,49 +156,48 @@ class Tree():
     return "\n".join(reprprint)
   
   #wrap canvas functions and update leaf buffer dimensions
-  def _changexdim(self,newpixw):
-    self.canvas.changexdim(newpixw)
-    self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
+  def _changexdim(self,newpixw,canvas):
+    canvas.changexdim(newpixw)
+    self.leaf_buffer = [[0 for _ in range(canvas.pixw)] for _ in range(canvas.pixh)]
   
-  def _changeydim(self,newpixw):
-    self.canvas.changeydim(newpixw)
-    self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
+  def _changeydim(self,newpixw,canvas):
+    canvas.changeydim(newpixw)
+    self.leaf_buffer = [[0 for _ in range(canvas.pixw)] for _ in range(canvas.pixh)]
 
 #repr stores list of lists indexed:(0) - total length, (1) - section lengths, (2) - features, (3) - time, (4) - branch order, (5) - growth scale factor
 #('L',type,stage) for leaf ('B',angle,index) for branch (negative angle is left, positive angle is right)
   #wrap recursiverender
-  def render(self,bottom_offset = 0):
+  def render(self,canvas,bottom_offset = 0):
+    self.leaf_buffer = [[0 for _ in range(canvas.pixw)] for _ in range(canvas.pixh)]
     #start render at bottom centre
-    rootx = int(self.canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
-    rooty = self.canvas.pixh - bottom_offset -1
-    addx,addy = self._recursiverender(rootx,rooty)
+    rootx = int(canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
+    rooty = canvas.pixh - bottom_offset -1
+    addx,addy = self._recursiverender(rootx,rooty,canvas)
     if addx == 0 and addy == 0:
-      self._postprocesstrunk()
-      self._renderleafbuffer()
-      self.canvas.render()
+      self._postprocesstrunk(canvas)
+      self._renderleafbuffer(canvas)
     else:
       #round addx and addy up self.pixh
       addx = int(math.ceil(addx/self.expand_offset) * self.expand_offset)
       addy = int(math.ceil(addy/self.expand_offset) * self.expand_offset)
-      displayratio = self.canvas.perfect_width/self.canvas.perfect_height
-      newpixw = self.canvas.pixw + addx
-      newpixh = self.canvas.pixh + addy
+      displayratio = canvas.perfect_width/canvas.perfect_height
+      newpixw = canvas.pixw + addx
+      newpixh = canvas.pixh + addy
       newratio = newpixw/newpixh
       if displayratio < newratio:
-        self._changexdim(newpixw)
+        self._changexdim(newpixw,canvas)
       else:
-        self._changeydim(newpixh)
-      rootx = int(self.canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
-      rooty = self.canvas.pixh - bottom_offset - 1
-      addx,addy = self._recursiverender(rootx,rooty)
+        self._changeydim(newpixh,canvas)
+      rootx = int(canvas.pixw/2) + self._widthfunc(self.repr[0][0])/2
+      rooty = canvas.pixh - bottom_offset - 1
+      addx,addy = self._recursiverender(rootx,rooty,canvas)
       if addx == 0 and addy == 0:
-        self._postprocesstrunk()
-        self._renderleafbuffer()
-        self.canvas.render()
+        self._postprocesstrunk(canvas)
+        self._renderleafbuffer(canvas)
       else:
         raise RuntimeError('tree render failed twice')
       
-  def _renderleafbuffer(self):
+  def _renderleafbuffer(self,canvas):
     for rowindex,row in enumerate(self.leaf_buffer):
       for colindex,tile in enumerate(row):
         if tile != 0:
@@ -202,15 +205,15 @@ class Tree():
             write = self.greens[self.leafcolourthresholds[tile - 1]]
           else:
             write = self.greens[self.leafcolourthresholds[-1]]
-          self.canvas.displayarray[rowindex][colindex] = write
+          canvas.displayarray[rowindex][colindex] = write
     #clear leaf buffer after writing it
-    self.leaf_buffer = [[0 for _ in range(self.canvas.pixw)] for _ in range(self.canvas.pixh)]
+    self.leaf_buffer = [[0 for _ in range(canvas.pixw)] for _ in range(canvas.pixh)]
 
 #go through all rows in displayarray, if number of brown pixels in a row is more than self.brownrowthresh make some of the middle ones lighter brown
-  def _postprocesstrunk(self):
+  def _postprocesstrunk(self,canvas):
     #list of 3-tuple (rowindex, start column index, end column index)
     light_brown_rowwrites = []
-    for rowindex,row in enumerate(self.canvas.displayarray):
+    for rowindex,row in enumerate(canvas.displayarray):
       startbrown = None
       endbrown = None
       for colindex, pixelcol in enumerate(row):
@@ -220,7 +223,7 @@ class Tree():
             endbrown = colindex
           else:
             endbrown = colindex
-        if (self._stopbrownrow(rowindex,colindex) or colindex + 1 == len(row)) and startbrown != None:
+        if (self._stopbrownrow(rowindex,colindex,canvas) or colindex + 1 == len(row)) and startbrown != None:
           brownlength = endbrown - startbrown + 1
           if brownlength > self.brownrowthresh:
             light_brown_rowwrites.append((rowindex,startbrown + 2, endbrown - 2))
@@ -229,22 +232,22 @@ class Tree():
     #make the changes
     for rowindex,startcol,endcol in light_brown_rowwrites:
       for colindex in range(startcol,endcol + 1):
-        self.canvas.displayarray[rowindex][colindex] = self.light_brown
+        canvas.displayarray[rowindex][colindex] = self.light_brown
 
   #helper function for _postprocesstrunk
-  def _stopbrownrow(self,rowindex,colindex):
+  def _stopbrownrow(self,rowindex,colindex,canvas):
     offsets = [-1,0,1]
     for yoff in offsets:
       crow = rowindex + yoff
-      if len(self.canvas.displayarray) > crow >= 0:
-        if self.canvas.displayarray[crow][colindex] != self.brown:
+      if len(canvas.displayarray) > crow >= 0:
+        if canvas.displayarray[crow][colindex] != self.brown:
           return True
     return False
 
  #fail is flag to see if tree fits in current canvas, if not we carry on to see what canvas size we need then render starts again with enlarged canvas
  #in order to make branches come out of the correct place rootx,rooty now corresponds to branch vertex furthest down the trunk
  #if angle is 0, it corresponds to right bottom
-  def _recursiverender(self,rootx,rooty,bpoint = 0, angle = 0, fail = False):
+  def _recursiverender(self,rootx,rooty,canvas,bpoint = 0, angle = 0, fail = False):
     cbranch = self.repr[bpoint]
     bwidth = self._widthfunc(cbranch[0])
     sintheta = math.sin(angle)
@@ -282,14 +285,14 @@ class Tree():
       addy = -miny
     else:
       addy = 0
-    addx = max([maxx - self.canvas.pixw + 1,-minx]) * 2
+    addx = max([maxx - canvas.pixw + 1,-minx]) * 2
     if addx < 0:
       addx = 0
     if addx > 0 or addy > 0:
       fail = True
     if not fail:
       if cbranch[4] <= self.max_visible_order:
-        self.canvas.writeshape([p1,p2,p3],self.brown,thin = True)
+        canvas.writeshape([p1,p2,p3],self.brown,thin = True)
       for leafx,leafy in zip(xleafcoords,yleafcoords):
         leafx = roundup(leafx)
         leafy = roundup(leafy)
@@ -303,9 +306,9 @@ class Tree():
       if addx > 0 or addy > 0:
         fail = True
       if feature[0] > 0:
-        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta + costheta * cwidth/2, midbase[1] - cumlength * costheta + sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
+        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta + costheta * cwidth/2, midbase[1] - cumlength * costheta + sintheta * cwidth/2,canvas, bpoint = feature[1], angle = angle + feature[0], fail = fail)
       else:
-        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta - costheta * cwidth/2, midbase[1] - cumlength * costheta - sintheta * cwidth/2, bpoint = feature[1], angle = angle + feature[0], fail = fail)
+        new_addx,new_addy = self._recursiverender(midbase[0] + cumlength * sintheta - costheta * cwidth/2, midbase[1] - cumlength * costheta - sintheta * cwidth/2,canvas, bpoint = feature[1], angle = angle + feature[0], fail = fail)
       #add bezier curve to smooth out transition between root and trunk
       #This code only works for 1st order branches and when root is straight!
       if cbranch[4] == 0 and not fail:#(self,coords,colour,thin = True)
@@ -316,17 +319,18 @@ class Tree():
         nextwidthaftersection = self._widthfunc(nextbranch[0] - nextbranchsectionlength)
         cosbangle = math.cos(feature[0])
         sinbangle = math.sin(feature[0])
+        #don't need to check for fail for these draws as they are bounded by points that have been already checked for
         if feature[0] > 0:
           #2nd point is intersection between branch and trunk, 1st is further down on trunk, 3rd is further up on branch
           p1 = (midbase[0] + oldwidth/2, midbase[1] - cumlength + csectionlength)
           p2 = (midbase[0] + cwidth/2, midbase[1] - cumlength)
           p3 = (midbase[0] + cwidth/2 - cosbangle * nextwidth/2 + sinbangle * nextbranchsectionlength + cosbangle * nextwidthaftersection/2, midbase[1] - cumlength - sinbangle * nextwidth/2 - cosbangle * nextbranchsectionlength + sinbangle * nextwidthaftersection/2)
-          self.canvas.writeshape([[p1,p2,p3],p2],self.brown)
+          canvas.writeshape([[p1,p2,p3],p2],self.brown)
         else:
           p1 = (midbase[0] - oldwidth/2, midbase[1] - cumlength + csectionlength)
           p2 = (midbase[0] - cwidth/2, midbase[1] - cumlength)
           p3 = (midbase[0] - cwidth/2 + cosbangle * nextwidth/2 + sinbangle * nextbranchsectionlength - cosbangle * nextwidthaftersection/2, midbase[1] - cumlength + sinbangle * nextwidth/2 - cosbangle * nextbranchsectionlength - sinbangle * nextwidthaftersection/2)
-          self.canvas.writeshape([[p1,p2,p3],p2],self.brown)
+          canvas.writeshape([[p1,p2,p3],p2],self.brown)
       if new_addx > addx:
         addx = new_addx
       if new_addy > addy:
