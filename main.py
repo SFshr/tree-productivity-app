@@ -2,47 +2,65 @@ import tkinter as tk
 import pickle
 import json
 import os
-from PIL import Image as im, ImageTk
-
+from PIL import Image as im
+from tkinter import font
 from pixelcanvas import PixelCanvas
 from drawtree import Tree
+from screens import Mainscreen,Focusscreen,Maketreescreen
 
+#also going to move screen classes into a seperate file called screens to make the codebase easier to navigate
 class App(tk.Tk):
   def __init__(self, *args,**kwargs):
     tk.Tk.__init__(self, *args, **kwargs)
     #window:
     screenscaling = 30
     self.geometry(f'{9*screenscaling}x{16*screenscaling}')
+    self.screenwidth = 9*screenscaling
+    self.screenheight = 16*screenscaling
     self.title('Prodtree')
-    #tree stuff:
+    #overall styling:
+    fontsize_list = [10,14,20,45]
+    self.default_fontindex = 1
+    self.fontlist = [font.Font(family="DejaVu Sans Mono", size = size) for size in fontsize_list]
+    self.background_col = '#161B33'
+    self.background_inset_col = '#0D0C1D'
+    self.font_col = 'white'#'#F1DAC4'
+    self.skycol ='#56B3F7'
+    #files and folders needed in this project:
     self.appfoldername = 'appdata'
+    self.treenamesfile = 'treenames.txt'
+    self.newtreeiconfile = 'addtreeicon.png'
     self.statefname = os.path.join(self.appfoldername,'appstate.json')
+    #tree stuff:
     if os.path.exists(self.appfoldername):
       newuser = False
       try:
         with open(self.statefname, 'r') as f:
           appstate = json.load(f)
-          self.alltrees = appstate['alltrees']
+          #treedatadict values are [tree name, tree subject, time quota] with time quota measured in minutes
+          self.treedatadict = appstate['treedatadict']
+          self.focustimepreset = appstate['focustimepreset']
       except:
-        raise FileNotFoundError('appdata folder did not have app state file inside')
+        raise FileNotFoundError('appdata could not be accessed')
     else:
       newuser = True
       os.makedirs(self.appfoldername)
-      self.alltrees = []
-    self.blue ='#56B3F7'
+      self.treedatadict = {}
+      self.focustimepreset = 5
+   
     #treedict,treepicturedict keys are integerss
     #treepicturedict stores tuple with PIL photoimage objects of tree states and a flag to say if they have been changed this session or not
-    self.treepicturedict = {i:(im.open(self._treepicturefilescheme(i)),False) for i in self.alltrees}
+    self.treepicturedict = {i:(im.open(self._treepicturefilescheme(i)),False) for i in self.treedatadict.keys()}
     #treedict stores tree objects brought into memory
     self.treedict = {}
-    self.initialcanvaspixdims = (17,30) #holds number of pixels long and high pixel canvas is for tree just created
+    self.initialcanvaspixdims = (9,16) #holds number of pixels long and high pixel canvas is for tree just created
     #manage screens:
     #container holds all screens
     container = tk.Frame(self)
     container.pack(side="top", fill="both", expand=True)
     container.grid_rowconfigure(0, weight=1)
     container.grid_columnconfigure(0, weight=1)
-    screenclasses = [Focusscreen,Mainscreen]
+    screenclasses = [Focusscreen,Mainscreen,Maketreescreen]
     self.screendict = {}
     for screenclass in screenclasses:
       screen = screenclass(container,self)
@@ -51,7 +69,14 @@ class App(tk.Tk):
     self.show_screen('Mainscreen')
     #save data when program is closed:
     self.protocol("WM_DELETE_WINDOW", self._on_shutdown)
-  
+    if newuser:
+      self.screendict['Maketreescreen'].inputnewtree()
+      self.show_screen('Maketreescreen')
+    else:
+      self.show_screen('Mainscreen')
+
+#edit button does not make the new tree icon appear, cannot start focus session now
+#make background dark blue to make sure you can see the white edit button
   #need to create setter functions for treepicturedict so that we can change main screen button pictures when trees change
   def changetreepicture(self,index,newpicture):
     self.treepicturedict[index] = (newpicture,True)
@@ -63,7 +88,7 @@ class App(tk.Tk):
 
   def addtreepicture(self,index,newpicture):
     self.treepicturedict[index] = (newpicture,True)
-    self.screendict['Mainscreen'].addtreebutton(index)
+    self.screendict['Mainscreen'].addnewtreebutton(index)
 
   def _treefilescheme(self,index):
     return os.path.join(self.appfoldername,f'tree-{index}.pkl')
@@ -96,31 +121,34 @@ class App(tk.Tk):
     if treeindex not in self.treedict.keys():
       self.treefromfile(treeindex)
     return self.treedict[treeindex]
-    
-  def makenewtree(self):
-    if self.alltrees:
-      treeindex = max(self.alltrees) + 1
+#when int converted to json and loaded back in maybe it becomes string?
+  def makenewtree(self,treename,subject,quota):
+    if self.treedatadict:
+      treeindex = str(max([int(i) for i in self.treedatadict.keys()]) + 1)
     else:
       treeindex = 0
     newtree = Tree()
     self.treedict[treeindex] = newtree
-    self.alltrees.append(treeindex)
-    canvas = PixelCanvas(self,*self.initialcanvaspixdims,1,bg = self.blue)
+    self.treedatadict[treeindex] = [treename,subject,quota]
+    canvas = PixelCanvas(self,*self.initialcanvaspixdims,1,bg = self.skycol)
     newtree.render(canvas)
     image = canvas.renderimage()
     self.addtreepicture(treeindex,image)
 
   def deletetree(self,treeindex):
     try:
-      del self.treedict[treeindex]
+      del self.treedatadict[treeindex]
     except:
       raise RuntimeError('No tree at index to delete')
     self.deletetreepicture(treeindex)
-    self.alltrees.remove(treeindex)
+    if treeindex in self.treedict.keys():
+      del self.treedict[treeindex]
     os.remove(self._treefilescheme(treeindex))
     os.remove(self._treepicturefilescheme(treeindex))
 
   def _on_shutdown(self):
+    if self.screendict['Focusscreen'].nowfocused:
+      self.screendict['Focusscreen'].premature_endfocus()
     error = self.savesession()
     self.destroy()
     if error:
@@ -139,86 +167,12 @@ class App(tk.Tk):
     except:
       error = TypeError('could not save tree image objects')
     try:
-      appdata = {'alltrees':self.alltrees}
+      appdata = {'treedatadict':self.treedatadict,'focustimepreset':self.focustimepreset}
       with open(self.statefname,'w') as f:
         json.dump(appdata,f,indent=4)
     except:
       error = TypeError('could not save app data in json')
     return error
-
-class Mainscreen(tk.Frame):
-  def __init__(self,parent,controller):
-    tk.Frame.__init__(self, parent)
-    self.controller = controller
-    self.treepicturesf = 6
-    self.tk_treepictures = {}
-    self.treebuttons = {}
-    self.focustime = 0
-    for treeindex in self.controller.treepicturedict.keys():
-      self.addtreebutton(treeindex)
-
-  def addtreebutton(self,treeindex):
-    tkpicture = self._gettkpicture(treeindex)
-    self.tk_treepictures[treeindex] = tkpicture
-    treebutton = tk.Button(self, image=tkpicture, command=self._returntreeclick(treeindex))
-    treebutton.pack()
-    self.treebuttons[treeindex] = treebutton
-  
-  def updatetreebutton(self,treeindex):
-    tkpicture = self._gettkpicture(treeindex)
-    self.tk_treepictures[treeindex] = tkpicture
-    self.treebuttons[treeindex].config(image=tkpicture)
-
-  def deletetreebutton(self,treeindex):
-    self.treebuttons[treeindex].destroy()
-    del self.treebuttons[treeindex]
-    del self.tk_treepictures[treeindex]
-    
-  def _gettkpicture(self,treeindex):
-    treepicture,_ = self.controller.treepicturedict[treeindex]
-    treepicture.resize((self.controller.initialcanvaspixdims[0]*self.treepicturesf,self.controller.initialcanvaspixdims[1]*self.treepicturesf),im.NEAREST)
-    return ImageTk.PhotoImage(treepicture)
-  
-#returns function which starts focus session for tree corresponding to index
-  def _returntreeclick(self,index):
-    def func():
-      self.controller.screendict['Focusscreen'].focus(index,self.focustime)
-      self.controller.show_screen('Focusscreen')
-    return func
-  
-class Focusscreen(tk.Frame):
-  def __init__(self,parent,controller):
-    tk.Frame.__init__(self, parent)
-    
-    #length of time between frames for simulation and animation
-    self.simstep = 30
-    self.timestep = 1
-    self.controller = controller
-    self.canvas = PixelCanvas(self,self.controller.initialcanvaspixdims[0]*13,self.controller.initialcanvaspixdims[1]*13,13,bg = self.controller.blue)
-    self.canvas.pack()
-
-#time measured in seconds
-  def focus(self,treeindex,time):
-    self.timeleft = time
-    self.ctreeindex = treeindex
-    self.ctree = self.controller.fetchtree(treeindex)
-    self._driver()
-  
-  def _endfocus(self):
-    self.ctree.render(self.canvas)
-    image = self.canvas.renderimage()
-    self.controller.treepicturedict[self.ctreeindex] = (image,True)
-
-  def _driver(self):
-    for _ in range(self.simstep):
-      self.ctree.tick(1)
-    self.ctree.render(self.canvas)
-    self.canvas.render()
-    if self.timeleft >= 0:
-      self.timeleft -= self.timestep
-      self.controller.after(self.timestep*1000, self._driver)
-    else:
-      self._endfocus()
 
 if __name__ == '__main__':
   app = App()
