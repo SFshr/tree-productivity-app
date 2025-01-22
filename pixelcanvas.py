@@ -10,6 +10,12 @@ def print2D(a):
   for l in a:
     print(l)
 
+def hextorgb(code,default):
+  try:
+    return tuple(int(code[i:i+2],16) for i in range(1,7,2))
+  except:
+    return default
+
 class PixelCanvas(Canvas):
   #assume width,height are factors of integer pixsize
   def __init__(self,parent,width,height,pixsize,bg = '#FFFFFF'):
@@ -25,14 +31,11 @@ class PixelCanvas(Canvas):
     self.height = pixsize*self.pixh
     super().__init__(parent,width = self.width, height = self.height, highlightthickness = 0,bg = bg)
   # PIL accepts only rgb
-  def _hextorgb(self,code):
-    if code != None:
-      return tuple(int(code[i:i+2],16) for i in range(1,7,2))
-    return self.background_rgb
+ 
   
   #note each element in displayarray corresponds to a pixel in the image
   def renderimage(self):
-    rgbarray = np.array([[self._hextorgb(pix) for pix in row] for row in self.displayarray],dtype=np.uint8)
+    rgbarray = np.array([[hextorgb(pix,self.background_rgb) for pix in row] for row in self.displayarray],dtype=np.uint8)
     return im.fromarray(rgbarray)
 
   def changexdim(self,pixlen):

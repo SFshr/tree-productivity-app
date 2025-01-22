@@ -5,10 +5,10 @@ import os
 from PIL import Image as im
 from tkinter import font
 from pixelcanvas import PixelCanvas
-from drawtree import Tree
-from screens import Mainscreen,Focusscreen,Maketreescreen
 
-#also going to move screen classes into a seperate file called screens to make the codebase easier to navigate
+from drawtree import Tree
+from screens import *
+
 class App(tk.Tk):
   def __init__(self, *args,**kwargs):
     tk.Tk.__init__(self, *args, **kwargs)
@@ -40,8 +40,12 @@ class App(tk.Tk):
           #treedatadict values are [tree name, tree subject, time quota] with time quota measured in minutes
           self.treedatadict = appstate['treedatadict']
           self.focustimepreset = appstate['focustimepreset']
+          #notiftimes contains lists with 4 elements - day of week,hours,minutes,tree
+          #notiftimes is chronologically sorted
+          #week indexed from 0 on monday
+          self.notiftimes = appstate['notiftimes']
       except:
-        raise FileNotFoundError('appdata could not be accessed')
+        raise FileNotFoundError('app data could not be accessed')
     else:
       newuser = True
       os.makedirs(self.appfoldername)
@@ -60,7 +64,7 @@ class App(tk.Tk):
     container.pack(side="top", fill="both", expand=True)
     container.grid_rowconfigure(0, weight=1)
     container.grid_columnconfigure(0, weight=1)
-    screenclasses = [Focusscreen,Mainscreen,Maketreescreen]
+    screenclasses = [Focusscreen,Mainscreen,Maketreescreen,Newreminderscreen,Notifscreen]
     self.screendict = {}
     for screenclass in screenclasses:
       screen = screenclass(container,self)
@@ -121,7 +125,7 @@ class App(tk.Tk):
     if treeindex not in self.treedict.keys():
       self.treefromfile(treeindex)
     return self.treedict[treeindex]
-#when int converted to json and loaded back in maybe it becomes string?
+  #when int converted to json and loaded back in maybe it becomes string?
   def makenewtree(self,treename,subject,quota):
     if self.treedatadict:
       treeindex = str(max([int(i) for i in self.treedatadict.keys()]) + 1)
@@ -167,7 +171,7 @@ class App(tk.Tk):
     except:
       error = TypeError('could not save tree image objects')
     try:
-      appdata = {'treedatadict':self.treedatadict,'focustimepreset':self.focustimepreset}
+      appdata = {'treedatadict':self.treedatadict,'focustimepreset':self.focustimepreset, 'notiftimes':self.notiftimes}
       with open(self.statefname,'w') as f:
         json.dump(appdata,f,indent=4)
     except:

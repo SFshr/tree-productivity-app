@@ -1,15 +1,19 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 from PIL import Image as im, ImageTk
 import random
-from pixelcanvas import PixelCanvas
+import numpy as np
+from bisect import insort,bisect_right
+from datetime import datetime
+
+from pixelcanvas import PixelCanvas, hextorgb
 from cwidgets import *
 
 class Mainscreen(cFrame):
   def __init__(self,parent,controller):
     super().__init__(controller, parent)
     self.controller = controller
-    self.treepicturesf = 5
+    self.treepicturesf = 8
     self.tk_treepictures = {}
     self.treebuttonframe = {}
     self.newtreeicon = None
@@ -21,26 +25,37 @@ class Mainscreen(cFrame):
     self.treeframe = cFrame(self.controller, self)
     self.treeframe.pack(side="top", fill="both", expand=True)
     #frame for time slider and edit button
-    self.controlframe = cFrame( self.controller, self)
-    self.controlframe.pack(side="bottom", fill="x", expand=False)
+    self.controlframe = cFrame(self.controller, self)
+    self.controlframe.pack(side="bottom", fill="x", expand=False,ipady = 10)
     #treebuttons
     for placeindex,treeindex in enumerate(self.controller.treepicturedict.keys()):
       ygrid,xgrid = divmod(placeindex,self.treegridwidth)
       self.addtreebutton(treeindex,xgrid,ygrid)
-    self.timeslider = cSlider(self.controller, self.controlframe, from_=self.min_focustime, to=self.max_focustime, command = self._updatetimelabel, value = self.controller.focustimepreset ,orient="horizontal",length = 200)
-    self.timeslider.pack(side="bottom", pady = 10)
     self.timelabel = cLabel(self.controller,self.controlframe)
-    self.timelabel.pack(side="bottom")
+    self.timelabel.pack()
+    self.timeslider = cSlider(self.controller, self.controlframe, from_=self.min_focustime, to=self.max_focustime, command = self._updatetimelabel, value = self.controller.focustimepreset ,orient="horizontal",length = 200)
+    self.timeslider.pack(pady = 10)
     self.editbutton = cButton(self.controller, self.controlframe, text = 'edit', command = self._edittrees)
-    self.editbutton.pack()
+    self.editbutton.pack(side = tk.LEFT,padx = 10)
+    self.notificationbutton = cButton(self.controller, self.controlframe, text = 'reminders', command = self. _changetonotifs)
+    self.notificationbutton.pack(side = tk.RIGHT,padx = 10)
     self._updatetimelabel(self.controller.focustimepreset)
+
+  def _changetonotifs(self):
+    self.controller.show_screen('Notifscreen')
 
   def _edittrees(self):
     self.editbutton.config(text = 'done', command = self._stoptreeedit)
     if not self.newtreeicon:
       newtreeicon = im.open(self.controller.newtreeiconfile)
       newtreeicon = newtreeicon.resize((self.controller.initialcanvaspixdims[0]*self.treepicturesf,self.controller.initialcanvaspixdims[1]*self.treepicturesf),im.NEAREST)
-      self.newtreeicon = ImageTk.PhotoImage(newtreeicon)
+      #if self.controller.background_col is not in the right format just use black background
+      newtreeicon = newtreeicon.convert('RGBA')
+      r,g,b = hextorgb(self.controller.background_col,(0,0,0))
+      background = im.new('RGB', newtreeicon.size, (r,g,b,1))
+      #composite background with foreground
+      background.paste(newtreeicon, (0, 0), newtreeicon)
+      self.newtreeicon = ImageTk.PhotoImage(background)
     ygrid,xgrid = divmod(len(self.treebuttonframe),self.treegridwidth)
     self.addtreebuttonframe = self._addoptionbutton(self.newtreeicon,'new tree',self._newtreebuttonfunc,xgrid,ygrid)
 
@@ -67,11 +82,13 @@ class Mainscreen(cFrame):
     treename = self.controller.treedatadict[treeindex][0]
     buttonframe = self._addoptionbutton(tkpicture,treename,self._returntreeclick(treeindex),xgrid,ygrid)
     self.treebuttonframe[treeindex] = buttonframe
-  
+
+  #This should not be a problem as one of the button styling should show through
   def _addoptionbutton(self,tkpicture,treename,onbuttonclick,xgrid,ygrid):
-    buttonframe = cFrame(self.controller, self.treeframe)
-    buttonframe.grid(row = ygrid, column = xgrid, padx = 5, pady = 5)
-    treebutton = cButton(self.controller, buttonframe, image = tkpicture, command = onbuttonclick)
+    buttonframe = cFrame(self.controller, self.treeframe, height = 145, width = tkpicture.width())
+    padx = (self.controller.screenwidth - self.treegridwidth * tkpicture.width())/(self.treegridwidth * 2)
+    buttonframe.grid(row = ygrid, column = xgrid, padx = padx, pady = 10)
+    treebutton = tk.Button(buttonframe, image = tkpicture, command = onbuttonclick, width = tkpicture.width() - 4, height = tkpicture.height() - 4)
     treebutton.pack()
     namelabel = cLabel(self.controller,buttonframe,text = treename)
     namelabel.pack()
@@ -80,7 +97,7 @@ class Mainscreen(cFrame):
   def updatetreebutton(self,treeindex):
     tkpicture = self._gettkpicture(treeindex)
     self.tk_treepictures[treeindex] = tkpicture
-    self.treebuttonframe[treeindex].children['!cbutton'].config(image=tkpicture)
+    self.treebuttonframe[treeindex].children['!button'].config(image=tkpicture)
 
   def deletetreebutton(self,treeindex):
     self.treebuttonframe[treeindex].destroy()
@@ -91,7 +108,6 @@ class Mainscreen(cFrame):
     treepicture,_ = self.controller.treepicturedict[treeindex]
     treepicture = treepicture.resize((self.controller.initialcanvaspixdims[0]*self.treepicturesf,self.controller.initialcanvaspixdims[1]*self.treepicturesf),im.NEAREST)
     return ImageTk.PhotoImage(treepicture)
-  
   
 #returns function which starts focus session for tree corresponding to index
   def _returntreeclick(self,index):
@@ -112,7 +128,7 @@ class Focusscreen(cFrame):
     self.nowfocused = False
     pixlen = 20
     self.canvas = PixelCanvas(self,self.controller.initialcanvaspixdims[0]*pixlen,self.controller.initialcanvaspixdims[1]*pixlen,pixlen,bg = self.controller.skycol)
-    self.canvas.pack()
+    self.canvas.pack(pady = 30)
     self.timeleftlabel = cLabel(self.controller, self, fontindex = 3)
     self.timeleftlabel.pack()
     self.stopbutton = cButton(self.controller,self, text = 'Stop early', command=self._stopearly)
@@ -214,5 +230,160 @@ class Maketreescreen(cFrame):
       timequota = float(timequota)
       self.controller.makenewtree(self.treename,subject,int(timequota*60))
       self.controller.show_screen('Mainscreen')
+
+class Notifscreen(cFrame):
+  def __init__(self,parent,controller):
+    super().__init__(controller, parent)
+    self.controller = controller
+    #implement scrolling:
+    self.scrolldowndist = 0
+    self.scrollcanvas = tk.Canvas(self,bg = self.controller.background_inset_col,highlightthickness=0)
+    self.scrollcanvas.pack(fill='both', expand = True)
+    self.scrollframe = cFrame(self.controller, self.scrollcanvas,bg = self.controller.background_inset_col)
+    self.scrollframe.bind("<Configure>", lambda _:self.scrollcanvas.configure(scrollregion=self.scrollcanvas.bbox("all")))
+    self.scrollcanvas.create_window((0, 0), window=self.scrollframe, anchor="nw")
+    self.scrollcanvas.bind_all("<MouseWheel>", self.on_mousewheel)
+    self.deletedreminderindexes = []
+    #frame for reminders
+    #frame for back and new reminder button
+    self.controlframe = cFrame(self.controller, self)
+    self.controlframe.pack(side="bottom", fill="x", expand=False, ipady = 10)
+    self.newreminderbutton = cButton(self.controller, self.controlframe, text = 'New', command = self._setreminder)
+    self.newreminderbutton.pack(side = 'right',padx = 10)
+    self.backbutton = cButton(self.controller, self.controlframe, text = 'Back', command = self._goback)
+    self.backbutton.pack(side = 'left',padx = 10)
+    self.days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    self._renderreminders()
+
+  def on_mousewheel(self,event):
+    canvasheight = self.scrollcanvas.winfo_height()
+    contentlength = self.scrollframe.winfo_height()
+    maxscrolldist = contentlength - canvasheight
+    if maxscrolldist > 0:
+      self.scrolldowndist += -event.delta*4
+      if self.scrolldowndist < 0:
+        self.scrolldowndist = 0
+      elif self.scrolldowndist > maxscrolldist:
+        self.scrolldowndist = maxscrolldist
+      self.scrollcanvas.yview_moveto((self.scrolldowndist)/maxscrolldist)
+
+  def _getactualindex(self,index):
+    return index - bisect_right(self.deletedreminders,index)
+  
+  def _return_deletereminder(self,index):
+    def _deletereminder():
+      offset = bisect_right(self.deletedreminders,index)
+      self.deletedreminders.insert(offset,index)
+      nindex = index-offset
+      self.reminderlist[nindex].destroy()
+      del self.reminderlist[nindex]
+      del self.controller.notiftimes[nindex]
+      #force canvas redraw as elements were taking a while to delete
+      self.scrollcanvas.update()
+      self.scrollcanvas.update_idletasks()
+    return _deletereminder
+
+  def _goback(self):
+    self.controller.show_screen('Mainscreen')
+
+  def _renderreminders(self):
+    self.reminderlist = []
+    self.deletedreminders = []
+    for reminder in self.scrollframe.winfo_children():
+      reminder.destroy()
+    for reminderindex in range(len(self.controller.notiftimes)):
+      self.packreminder(reminderindex)
+    
+  def _return_changereminder(self,index):
+    def changereminder():
+       self._setreminder(index = self._getactualindex(index))
+    return changereminder
+  
+  def _setreminder(self,index = None):
+    self.controller.screendict['Newreminderscreen'].enternew(index)
+    self.controller.show_screen('Newreminderscreen')
+
+  def packreminder(self,index):
+    reminderframe = cFrame(self.controller, self.scrollframe, highlightbackground = self.controller.background_inset_col, highlightthickness = 1.5, height = 80, width = self.controller.screenwidth)
+    reminderframe.pack_propagate(False)
+    reminderframe.pack(pady = 0, padx = 0,fill = 'x')
+    lframe = cFrame(self.controller, reminderframe)
+    lframe.pack(side='left', fill='y')
+    rframe = cFrame(self.controller, reminderframe)
+    rframe.pack(side='right', fill='y')
+    reminder = self.controller.notiftimes[index]
+    daylabel = cLabel(self.controller, lframe, text = f'Day: {self.days[reminder[0]]}')
+    daylabel.pack(pady = 1.2, padx = 5, anchor="w")
+    timelabel = cLabel(self.controller, lframe, text = f'Time: {str(reminder[1]).zfill(2)}:{str(reminder[2]).zfill(2)}')
+    timelabel.pack(pady = 1.2, padx = 5, anchor="w")
+    treelabel = cLabel(self.controller, lframe, text = f'Tree: {reminder[3]}')
+    treelabel.pack(pady = 1.2, padx = 5, anchor="w")
+    #vertically centre buttons
+    #ignore last few screenshots why would pack verticallye center something??
+    centre_frame = cFrame(self.controller, rframe)
+    centre_frame.pack(expand=True)
+    editbutton = cButton(self.controller,centre_frame,text = 'edit', command = self._return_changereminder(index))
+    editbutton.pack(pady = 4, padx = 5)
+    deletebutton =  cButton(self.controller,centre_frame,text = 'delete', command = self._return_deletereminder(index))
+    deletebutton.pack(pady = 4, padx = 5)
+    self.reminderlist.append(reminderframe)
+
+#forgot to add name of tree to grow
+#forgot delete button
+class Newreminderscreen(cFrame):
+  def __init__(self,parent,controller):
+    super().__init__(controller, parent)
+    self.controller = controller
+    self.days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    self.dayindexdict = {self.days[i]:i for i in range(7)}
+    self.index = None
+    daylabel = cLabel(self.controller,self,text = 'Day:')
+    daylabel.pack(pady = 10)
+    self.dayselect = ttk.Combobox(self, values=self.days, state="readonly")
+    self.dayselect.pack()
+    timelabel = cLabel(self.controller,self,text = 'Time:')
+    timelabel.pack(pady = 10)
+    timeframe = cFrame(self.controller,self)
+    timeframe.pack()
+    self.hours = ttk.Spinbox(timeframe, from_=0, to=23, width=3, format="%02.0f")
+    self.hours.pack(side = 'left', padx = 4)
+    timedivider = cLabel(self.controller,timeframe, text = ':')
+    timedivider.pack(side = 'left')
+    self.mins = ttk.Spinbox(timeframe, from_=0, to=59, width=3, format="%02.0f")
+    self.mins.pack(side = 'left', padx = 4)
+    treelabel = cLabel(self.controller,self,text = 'Tree:')
+    treelabel.pack(pady = 10)
+    self.treeselect = ttk.Combobox(self, state="readonly")
+    self.treeselect.pack()
+    cancelbutton = cButton(self.controller,self, text = 'Back', command = self._cancel)
+    cancelbutton.pack(side = 'left',padx = 10)
+    savebutton = cButton(self.controller,self, text = 'Save', command = self._save)
+    savebutton.pack(side = 'right',padx = 10)
  
-      
+  def _cancel(self):
+    self.controller.show_screen('Notifscreen')
+  
+  def _save(self):
+    notif = [self.dayindexdict[self.dayselect.get()],int(self.hours.get()),int(self.mins.get()),self.treeselect.get()]
+    if self.index != None:
+      del self.controller.notiftimes[self.index]
+    insort(self.controller.notiftimes,notif)
+    self.controller.screendict['Notifscreen']._renderreminders()
+    self.controller.show_screen('Notifscreen')
+
+  def enternew(self,index = None):
+    self.index = index
+    now = datetime.now()
+    treenames = [value[0] for value in self.controller.treedatadict.values()]
+    self.treeselect.config(values = treenames)
+    if self.index != None:
+      day,hour,minute,treename = self.controller.notiftimes[index]
+      self.dayselect.set(self.days[day])
+      self.hours.set(f'{hour:02d}')
+      self.mins.set(f'{minute:02d}')
+      self.treeselect.set(treename)
+    else:
+      self.dayselect.set(self.days[now.weekday()])
+      self.hours.set(f'{now.hour:02d}')
+      self.mins.set(f'{now.minute:02d}')
+      self.treeselect.set(treenames[0])
