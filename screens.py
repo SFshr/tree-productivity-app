@@ -4,11 +4,19 @@ from PIL import Image as im, ImageTk
 import random
 import numpy as np
 from bisect import insort,bisect_right
-from datetime import datetime
+from datetime import datetime,timedelta
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from pixelcanvas import PixelCanvas, hextorgb
 from cwidgets import *
 
+def _roundhours(hours):
+  hours = round(hours,1)
+  if hours.is_integer():
+    return int(hours)
+  return hours
+  
 class Mainscreen(cFrame):
   def __init__(self,parent,controller):
     super().__init__(controller, parent)
@@ -21,16 +29,20 @@ class Mainscreen(cFrame):
     #focus time is in minutes
     self.min_focustime = 2
     self.max_focustime = 6 * 60
+    if datetime.now().weekday() == self.controller.checkinday:
+      checkinframe = cFrame(self.controller,self,highlightbackground = self.controller.font_col, highlightthickness = 1)
+      checkinframe.pack(padx = 5,pady = 5,ipady = 5,ipadx = 5)
+      checkinlabel = cLabel(self.controller,checkinframe,text = 'Your weekly progress report is ready!')
+      checkinlabel.pack()
+      viewcheckin = cButton(self.controller, checkinframe, command = self._switchtocheckin, text = 'view')
+      viewcheckin.pack(pady = (5,0))
     #frame for all the tree buttons
     self.treeframe = cFrame(self.controller, self)
     self.treeframe.pack(side="top", fill="both", expand=True)
+    self.drawtreeoptions()
     #frame for time slider and edit button
     self.controlframe = cFrame(self.controller, self)
     self.controlframe.pack(side="bottom", fill="x", expand=False,ipady = 10)
-    #treebuttons
-    for placeindex,treeindex in enumerate(self.controller.treepicturedict.keys()):
-      ygrid,xgrid = divmod(placeindex,self.treegridwidth)
-      self.addtreebutton(treeindex,xgrid,ygrid)
     self.timelabel = cLabel(self.controller,self.controlframe)
     self.timelabel.pack()
     self.timeslider = cSlider(self.controller, self.controlframe, from_=self.min_focustime, to=self.max_focustime, command = self._updatetimelabel, value = self.controller.focustimepreset ,orient="horizontal",length = 200)
@@ -40,6 +52,21 @@ class Mainscreen(cFrame):
     self.notificationbutton = cButton(self.controller, self.controlframe, text = 'reminders', command = self. _changetonotifs)
     self.notificationbutton.pack(side = tk.RIGHT,padx = 10)
     self._updatetimelabel(self.controller.focustimepreset)
+
+  def drawtreeoptions(self):
+    for placeindex,treeindex in enumerate(self.controller.treepicturedict.keys()):
+      ygrid,xgrid = divmod(placeindex,self.treegridwidth)
+      self.addtreebutton(treeindex,xgrid,ygrid)
+
+  def _returndeletetree(self,index):
+    def deletetree():
+      result = messagebox.askyesno(message = 'Do you want this tree to be permanently deleted?')
+      if result:
+        self.controller.deletetree(index)
+    return deletetree
+
+  def _switchtocheckin(self):
+    self.controller.show_screen('Checkinscreen')
 
   def _changetonotifs(self):
     self.controller.show_screen('Notifscreen')
@@ -58,10 +85,17 @@ class Mainscreen(cFrame):
       self.newtreeicon = ImageTk.PhotoImage(background)
     ygrid,xgrid = divmod(len(self.treebuttonframe),self.treegridwidth)
     self.addtreebuttonframe = self._addoptionbutton(self.newtreeicon,'new tree',self._newtreebuttonfunc,xgrid,ygrid)
+    self.delbuttons = []
+    for index,frame in self.treebuttonframe.items():
+      delbutton = cButton(self.controller, frame, text = 'delete', command = self._returndeletetree(index),width = 6)
+      delbutton.pack()
+      self.delbuttons.append(delbutton)
 
   def _stoptreeedit(self):
     self.editbutton.config(text = 'edit', command = self._edittrees)
     self.addtreebuttonframe.destroy()
+    for delbutton in self.delbuttons:
+      delbutton.destroy()
 
   def _newtreebuttonfunc(self):
     self.controller.screendict['Maketreescreen'].inputnewtree()
@@ -82,8 +116,14 @@ class Mainscreen(cFrame):
     treename = self.controller.treedatadict[treeindex][0]
     buttonframe = self._addoptionbutton(tkpicture,treename,self._returntreeclick(treeindex),xgrid,ygrid)
     self.treebuttonframe[treeindex] = buttonframe
+    self.updatepercent(treeindex)
 
-  #This should not be a problem as one of the button styling should show through
+  def updatepercent(self,treeindex):
+    focustime = self.controller.focustimeweek(datetime.now(),treeindex)
+    timequota = self.controller.treedatadict[treeindex][2]
+    percent = int((focustime/timequota)*100)
+    self.treebuttonframe[treeindex].children['!clabel2'].config(text=f'{percent}%')
+
   def _addoptionbutton(self,tkpicture,treename,onbuttonclick,xgrid,ygrid):
     buttonframe = cFrame(self.controller, self.treeframe, height = 145, width = tkpicture.width())
     padx = (self.controller.screenwidth - self.treegridwidth * tkpicture.width())/(self.treegridwidth * 2)
@@ -92,6 +132,8 @@ class Mainscreen(cFrame):
     treebutton.pack()
     namelabel = cLabel(self.controller,buttonframe,text = treename)
     namelabel.pack()
+    percentlabel = cLabel(self.controller,buttonframe)
+    percentlabel.pack()
     return buttonframe
 
   def updatetreebutton(self,treeindex):
@@ -128,9 +170,11 @@ class Focusscreen(cFrame):
     self.nowfocused = False
     pixlen = 20
     self.canvas = PixelCanvas(self,self.controller.initialcanvaspixdims[0]*pixlen,self.controller.initialcanvaspixdims[1]*pixlen,pixlen,bg = self.controller.skycol)
-    self.canvas.pack(pady = 30)
+    self.canvas.pack(pady = (25,5))
+    self.subjectlabel = cLabel(self.controller, self,fontindex = 2)
+    self.subjectlabel.pack()
     self.timeleftlabel = cLabel(self.controller, self, fontindex = 3)
-    self.timeleftlabel.pack()
+    self.timeleftlabel.pack(ipady = 0,pady = 0)
     self.stopbutton = cButton(self.controller,self, text = 'Stop early', command=self._stopearly)
     self.stopbutton.pack()
 
@@ -141,9 +185,9 @@ class Focusscreen(cFrame):
 
 #time measured in minutes, self.timeleft in seconds
   def focus(self,treeindex,time):
+    self.totaltime = time
     self.timeleft = time * 60
-    #FOR TESTING
-    self.timeleft = 5
+    self.subjectlabel.config(text = self.controller.treedatadict[treeindex][1])
     self.ctreeindex = treeindex
     self.ctree = self.controller.fetchtree(treeindex)
     self.ctree.savestate()
@@ -151,6 +195,8 @@ class Focusscreen(cFrame):
     self._driver()
  
   def _endfocus(self):
+    self.controller.addfocustime(self.ctreeindex,self.totaltime)
+    self.controller.screendict['Mainscreen'].updatepercent(self.ctreeindex)
     self.ctree.render(self.canvas)
     image = self.canvas.renderimage()
     self.controller.changetreepicture(self.ctreeindex,image)
@@ -158,6 +204,8 @@ class Focusscreen(cFrame):
     self.controller.show_screen('Mainscreen')
   
   def premature_endfocus(self):
+    self.controller.addfocustime(self.ctreeindex,self.totaltime - self.timeleft/60)
+    self.controller.screendict['Mainscreen'].updatepercent(self.ctreeindex)
     self.ctree.recoverstate()
     self.nowfocused = False
     self.controller.show_screen('Mainscreen')
@@ -328,8 +376,6 @@ class Notifscreen(cFrame):
     deletebutton.pack(pady = 4, padx = 5)
     self.reminderlist.append(reminderframe)
 
-#forgot to add name of tree to grow
-#forgot delete button
 class Newreminderscreen(cFrame):
   def __init__(self,parent,controller):
     super().__init__(controller, parent)
@@ -387,3 +433,216 @@ class Newreminderscreen(cFrame):
       self.hours.set(f'{now.hour:02d}')
       self.mins.set(f'{now.minute:02d}')
       self.treeselect.set(treenames[0])
+
+class Checkinscreen(cFrame):
+  def __init__(self,parent,controller):
+    super().__init__(controller, parent)
+    self.controller = controller
+    containerframe = cFrame(self.controller,self)
+    containerframe.pack(side="top", fill="both", expand=True)
+    containerframe.grid_rowconfigure(0, weight=1)
+    containerframe.grid_columnconfigure(0, weight=1)
+    controlframe = cFrame(self.controller,self)
+    controlframe.pack(side="bottom", fill="x", expand=False, ipady = 10)
+    backbutton = cButton(self.controller,controlframe,text = 'back', command = self._backbutton)
+    backbutton.pack(side = 'left',padx = 10)
+    self.screentoggle = cButton(self.controller,controlframe)
+    self.screentoggle.pack(side = 'right',padx = 10)
+    screenclasses = [Statsscreen,Quotascreen]
+    self.screendict = {}
+    for screenclass in screenclasses:
+      screen = screenclass(containerframe,controller)
+      screen.grid(row=0,column=0,sticky="nsew")
+      self.screendict[screenclass.__name__] = screen
+    self.showscreen('Statsscreen')
+  
+  def showscreen(self,name):
+    if name=='Statsscreen':
+      self.screentoggle.config(command = self._returnshowscreen('Quotascreen'),text = 'time goals')
+    else:
+      self.screentoggle.config(command = self._returnshowscreen('Statsscreen'), text = 'stats')
+    self.screendict[name].tkraise()
+  
+  def _returnshowscreen(self,name):
+    def showwrapper():
+      self.showscreen(name)
+    return showwrapper
+  
+  def _backbutton(self):
+    self.controller.show_screen('Mainscreen')
+
+class Statsscreen(cFrame):
+  def __init__(self,parent,controller):
+    super().__init__(controller, parent)
+    self.controller = controller
+    self.treenames = [t[0] for t in self.controller.treedatadict.values()]
+    self.treeindexmap = {v[0]:k for k,v in self.controller.treedatadict.items()}
+    if self.controller.streak[1] == 1:
+      streaktext = f'You have a streak of 1 day, keep going!'
+    else:
+      streaktext = f'You have a streak of {self.controller.streak[1]} days, keep going!'
+    streaklabel = cLabel(self.controller,self,text = streaktext,fontindex = 2, wraplength = self.controller.screenwidth - 10)
+    streaklabel.pack(pady = (10,0))
+    self.barframe = cFrame(self.controller,self)
+    self.barframe.pack(pady = (0,20))
+    self._getstats()
+    self._renderbars(self.treestats['all'][0],self.dailycats)
+    self.barchart.pack(padx = 10)
+    self.whichtree = ttk.Combobox(self.barframe, values = self.treenames + ['Overall'], state = "readonly",width = 5)
+    self.whichtree.set('Overall')
+    self.whichtree.bind('<<ComboboxSelected>>', self._changebar)
+    self.whichtree.pack(side = 'left', padx = (10,2))
+    self.whichtime = ttk.Combobox(self.barframe, values = ['Days','Weeks'], state = "readonly",width = 5)
+    self.whichtime.set('Days')
+    self.whichtime.bind('<<ComboboxSelected>>', self._changebar)
+    self.whichtime.pack(side = 'left', padx = 2)
+    unmet = 0
+    met = 0
+    dateob = datetime.now() - timedelta(days = 1)
+    for treeindex,treeval in self.controller.treedatadict.items():
+      if self.controller.focustimeweek(dateob,treeindex) > treeval[2]:
+        met += 1
+      else:
+        unmet += 1
+    if met == 1:
+      pietext = 'You met 1 goal:'
+    else:
+      pietext = f'You met {met} goals:'
+    pielabel = cLabel(self.controller,self,text = pietext)
+    pielabel.pack()
+    fig, ax = plt.subplots(figsize=(1.4, 1.4))
+    if met + unmet >0:
+      ax.pie([met,unmet], colors=[self.controller.highlight_col,self.controller.background_inset_col],startangle=90,wedgeprops={'edgecolor': self.controller.font_col, 'linewidth': 0.6})
+      ax.set_facecolor(self.controller.background_col)
+      fig.patch.set_facecolor(self.controller.background_col)
+      plt.tight_layout()
+      plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+      canvas = FigureCanvasTkAgg(fig, master=self)
+      canvas.draw()
+      self.piechart = canvas.get_tk_widget()
+      self.piechart.pack(pady = 0)
+
+  def _changebar(self,event):
+    self.barchart.destroy()
+    treeselect = self.whichtree.get()
+    if treeselect == 'Overall':
+      treeindex = 'all'
+    else:
+      treeindex = self.treeindexmap[treeselect]
+    if self.whichtime.get() == 'Days':
+      timeindex = 0
+      cats = self.dailycats
+    else:
+      timeindex = 1
+      cats = self.weeklycats
+    self._renderbars(self.treestats[treeindex][timeindex],cats)
+    self.barchart.pack(before = self.whichtree,padx = 10)
+
+  def _getstats(self):
+    #treestats value is list of 2 lists - daily times in past week and weekly times in past 2 months
+    self.treestats = {}
+    #Get names for the bars
+    self.dailycats = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+    self.dailycats = self.dailycats[self.controller.checkinday:] + self.dailycats[:self.controller.checkinday]
+    self.weeklycats = []
+    dateob = datetime.now()
+    dateob -= timedelta(days = 1)
+    for _ in range(8):
+      dateob -= timedelta(days = 7)
+      self.weeklycats.append(dateob.strftime("%-d-"))
+    self.weeklycats.reverse()
+    #self.treestats['all'] stores combined data:
+    self.treestats['all'] = []
+    self.treestats['all'].append([0 for _ in range(7)])
+    self.treestats['all'].append([0 for _ in range(8)])
+    #Get time data
+    for treeindex in self.controller.treedatadict.keys():
+      self.treestats[treeindex] = []
+      #past week:
+      dateob = datetime.now() 
+      dailytimes = []
+      for _ in range(7):
+        dateob -= timedelta(days = 1)
+        dailytimes.append(_roundhours(self.controller.focustimeday(dateob,treeindex)/60))
+      self.treestats[treeindex].append(list(reversed(dailytimes)))
+      for i,time in enumerate(reversed(dailytimes)):
+        self.treestats['all'][0][i] += time
+      #past 2 months:
+      dateob = datetime.now()
+      dateob -= timedelta(days = 1)
+      weeklytimes = []
+      for _ in range(8):
+        cweektime = self.controller.focustimeweek(dateob,treeindex)
+        dateob -= timedelta(days = 7)
+        weeklytimes.append(_roundhours(cweektime/60))
+      self.treestats[treeindex].append(list(reversed(weeklytimes)))
+      for i,time in enumerate(reversed(weeklytimes)):
+        self.treestats['all'][1][i] += time
+
+  def _renderbars(self,data,cats):
+    fig, ax = plt.subplots(figsize=(3.6, 1.6))
+    bars = ax.bar(cats, data, color=self.controller.highlight_col)
+    ax.set_facecolor(self.controller.background_col)
+    ax.tick_params(axis='x', colors = self.controller.font_col)  
+    ax.tick_params(axis='y', colors = self.controller.font_col)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_edgecolor(self.controller.font_col)
+    ax.spines['left'].set_edgecolor(self.controller.font_col)
+    fig.patch.set_facecolor(self.controller.background_col)
+    plt.tight_layout()
+    canvas = FigureCanvasTkAgg(fig, master=self.barframe)
+    canvas.draw()
+    self.barchart = canvas.get_tk_widget()
+
+class Quotascreen(cFrame):
+  def __init__(self,parent,controller):
+    super().__init__(controller, parent)
+    self.controller = controller
+    spacings = [40,40,60,25,20]
+    padding = 15
+    rowheight = 40
+    yesterday = datetime.now() - timedelta(days = 1)
+    ypos = 10
+    xpos = 10
+    for data, space in zip(['tree','goal','time spent','new goal'],spacings):
+      l = cLabel(self.controller,self,text = data)
+      l.place(x = xpos, y = ypos)
+      xpos += padding + space
+    ypos += rowheight
+    self.entrylist = []
+    for treeindex in self.controller.treedatadict.keys():
+      name = self.controller.treedatadict[treeindex][0]
+      timegoal = _roundhours(self.controller.treedatadict[treeindex][2]/60)
+      timegoalstr = f'{timegoal} hrs'
+      timespentstr = f'{_roundhours(self.controller.focustimeweek(yesterday,treeindex)/60)} hrs'
+      xpos = 10
+      for data, space in zip([name,timegoalstr,timespentstr],spacings):
+        l = cLabel(self.controller,self,text = data)
+        l.place(x = xpos, y = ypos)
+        xpos += padding + space
+      xpos += 6
+      enterhours = cEntry(self.controller,self,width = 2)
+      enterhours.insert(tk.END,timegoal)
+      enterhours.bind("<FocusIn>", self._returnentryfocus(enterhours))
+      enterhours.place(x = xpos, y = ypos-3)
+      self.entrylist.append((treeindex,enterhours))
+      xpos += spacings[3]
+      l = cLabel(self.controller,self,text = ' hrs')
+      l.place(x = xpos, y = ypos)
+      enterhours.tkraise()
+      ypos += rowheight
+    savebutton = cButton(self.controller,self,text = 'save',command = self._savesettings)
+    savebutton.place(x = padding, y = ypos)
+  
+  def _savesettings(self):
+    for treeindex,entrybox in self.entrylist:
+      try:
+        self.controller.treedatadict[treeindex][2] = int(entrybox.get())*60
+      except:
+        pass
+
+  def _returnentryfocus(self,entrybox):
+    def entryfocus(arg):
+      entrybox.delete(0, tk.END)
+    return entryfocus
