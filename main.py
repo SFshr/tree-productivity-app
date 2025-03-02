@@ -55,7 +55,7 @@ class App(tk.Tk):
           yesterday = datetime.now() - timedelta(days = 1)
           if self.streak[0] == yesterday.strftime("%d-%m-%Y"):
             self.streak[1] += 1
-          else:
+          elif self.streak[0] != datetime.now().strftime("%d-%m-%Y"):
             self.streak[1] = 1
           self.streak[0] = datetime.now().strftime("%d-%m-%Y")
       except:
