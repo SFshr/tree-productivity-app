@@ -32,7 +32,7 @@ class App(tk.Tk):
     self.skycol ='#56B3F7'
     #files and folders needed in this project:
     self.appfoldername = 'appdata'
-    self.treenamesfile = 'treenames.txt'
+    self.treenamesfile = 'assets/treenames.txt'
     self.newtreeiconfile = 'assets/addtreeicon.png'
     self.statefname = os.path.join(self.appfoldername,'appstate.json')
     #tree stuff:
