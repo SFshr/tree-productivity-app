@@ -5,6 +5,7 @@ import os
 from PIL import Image as im
 from tkinter import font
 from datetime import datetime,timedelta
+import ctypes
 
 from drawtree import Tree
 from screens import *
@@ -227,5 +228,9 @@ class App(tk.Tk):
     return error
 
 if __name__ == '__main__':
+  try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+  except:
+    pass
   app = App()
   app.mainloop()

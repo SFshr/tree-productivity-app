@@ -549,7 +549,7 @@ class Statsscreen(cFrame):
     dateob -= timedelta(days = 1)
     for _ in range(8):
       dateob -= timedelta(days = 7)
-      self.weeklycats.append(dateob.strftime("%-d-"))
+      self.weeklycats.append(f"{dateob.day}-")
     self.weeklycats.reverse()
     #self.treestats['all'] stores combined data:
     self.treestats['all'] = []
