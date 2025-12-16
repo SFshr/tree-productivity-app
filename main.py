@@ -14,7 +14,7 @@ from pixelcanvas import PixelCanvas
 class App(tk.Tk):
   def __init__(self, *args,**kwargs):
     tk.Tk.__init__(self, *args, **kwargs)
-    self.checkinday = 0
+    self.checkinday = 2
     #window:
     screenscaling = 30
     self.geometry(f'{9*screenscaling}x{16*screenscaling}')
@@ -33,7 +33,7 @@ class App(tk.Tk):
     #files and folders needed in this project:
     self.appfoldername = 'appdata'
     self.treenamesfile = 'treenames.txt'
-    self.newtreeiconfile = 'addtreeicon.png'
+    self.newtreeiconfile = 'assets/addtreeicon.png'
     self.statefname = os.path.join(self.appfoldername,'appstate.json')
     #tree stuff:
     if os.path.exists(self.appfoldername):
